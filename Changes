@@ -1,4 +1,8 @@
 Revision history for WWW-Shorten-Bitly
+1.11    2009-08-12/15:45IST
+        Implemented a few patches provided by other PAUSE
+        contributors to fail gracefully, use post instead of get on bit.ly.
+        
 0.78    2009-01-25/21:12IST
         Working version, fixed some documentation issues.
 
