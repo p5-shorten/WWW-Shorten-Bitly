@@ -18,6 +18,7 @@ WriteMakefile(
         'JSON::Any'    => 1.18
     },
     PREREQ_PRINT        => 1,
+    EXE_FILES           => ['bin/bitly_url'],
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'WWW-Shorten-Bitly-*' },
 );
