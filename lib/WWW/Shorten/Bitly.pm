@@ -91,12 +91,19 @@ my $bitly = WWW::Shorten::Bitly->new(URL => "http://www.example.com/this_is_one_
 USER => "bitly_user_id",
 APIKEY => "bitly_api_key");
 
+to use bit.ly's new j.mp service, just construct the bitly object like this:
+my $bitly = WWW::Shorten::Bitly->new(URL => "http://www.example.com/this_is_one_example.html",
+USER => "bitly_user_id",
+APIKEY => "bitly_api_key",
+jmp => 1);
+
 =cut
 
 sub new {
     my ($class) = shift;
     my %args = @_;
     $args{source} ||= "perlteknatusbitly";
+    $args{jmp} ||= 0;
     use File::Spec;
     my $bitlyrc = $^O =~/Win32/i ? File::Spec->catfile($ENV{HOME}, "_bitly") : File::Spec->catfile($ENV{HOME}, ".bitly");
     if (-r $bitlyrc){
@@ -114,6 +121,11 @@ sub new {
     my $bitly;
     $bitly->{USER} = $args{USER};
     $bitly->{APIKEY} = $args{APIKEY};
+    if ( $args{jmp} == 1) {
+        $bitly->{BASE} = "http://api.j.mp";
+    } else {
+        $bitly->{BASE} = "http://api.bit.ly";
+    }
     $bitly->{json} = JSON::Any->new;
     $bitly->{browser} = LWP::UserAgent->new(agent => $args{source});
     $bitly->{xml} = new XML::Simple(SuppressEmpty => 1);
@@ -128,6 +140,8 @@ The function C<makeashorterlink> will call the bit.ly API site passing it
 your long URL and will return the shorter bit.ly version.
 
 bit.ly requires the use of a user id and API key to shorten links.
+
+j.mp is not currently supported for makeashorterlink
 
 =cut
 
@@ -165,6 +179,8 @@ bit.ly identifier. bit.ly requires the use of a user name and API
 Key when using the API.
 
 If anything goes wrong, then the function will return C<undef>.
+
+j.mp is not currently supported for makealongerlink
 
 =cut
 
@@ -212,7 +228,7 @@ sub shorten {
         croak("URL is required.\n");
         return -1;
     }
-    $self->{response} = $self->{browser}->post('http://api.bit.ly/shorten', [
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/shorten', [
         'history' => '1',
         'version' => '2.0.1',
         'longUrl' => $args{URL},
@@ -238,7 +254,7 @@ sub expand {
         return -1;
     }
     my @foo = split(/\//, $args{URL});
-    $self->{response} = $self->{browser}->get('http://api.bit.ly/expand', [
+    $self->{response} = $self->{browser}->get($self->{BASE} . '/expand', [
         'history' => '1',
         'version' => '2.0.1',
         'shortUrl' => $args{URL},
@@ -267,7 +283,7 @@ say "Title of the page is " . $info->{htmlTitle};
 
 sub info {
     my $self = shift;
-    $self->{response} = $self->{browser}->post('http://api.bit.ly/info', [
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/info', [
         'format' => 'xml',
         'version' => '2.0.1',
         'shortUrl' => $self->{bitlyurl},
@@ -299,7 +315,7 @@ say "Total number of direct clicks received are: " . ${$clicks->{referrers}->{no
 
 sub clicks {
     my $self = shift;
-    $self->{response} = $self->{browser}->post('http://api.bit.ly/stats', [
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/stats', [
         'format' => 'xml',
         'version' => '2.0.1',
         'shortUrl' => $self->{bitlyurl},
@@ -323,7 +339,7 @@ sub clicks {
 
 sub errors {
     my $self = shift;
-    $self->{response} = $self->{browser}->post('http://api.bit.ly/errors', [
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/errors', [
         'version' => '2.0.1',
         'login' => $self->{USER},
         'apiKey' => $self->{APIKEY},
