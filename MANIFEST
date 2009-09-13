@@ -2,6 +2,7 @@ Changes
 MANIFEST
 Makefile.PL
 README
+bin/bitly_url
 lib/WWW/Shorten/Bitly.pm
 t/00-load.t
 t/pod-coverage.t
