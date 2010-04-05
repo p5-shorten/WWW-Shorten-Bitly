@@ -36,7 +36,7 @@ $Revision: 1.14 $
 =cut
 
 BEGIN {
-    our $VERSION = do { my @r = (q$Revision: 1.14 $ =~ /\d+/g); sprintf "%1d."."%02d" x $#r, @r }; # must be all one line, for MakeMaker
+    our $VERSION = do { my @r = (q$Revision: 1.16 $ =~ /\d+/g); sprintf "%1d."."%02d" x $#r, @r }; # must be all one line, for MakeMaker
     $WWW::Shorten::Bitly::VERBOSITY = 2;
 }
 
@@ -301,7 +301,45 @@ sub info {
     }
 }
 
-=head2 clicks
+
+=head2 infojson
+
+Get info about a shortened bit.ly URL. By default, the method will use the value that's stored in $bitly->{bitlyurl}. To be sure you're getting info on the correct URL, it's a good idea to set this value before getting any info on it.
+
+$bitly->{bitlyurl} = "http://bit.ly/jmv6";
+my $info = $bitly->info();
+
+say "City referred to is " . $info->{calais}{city}[0];
+say "Companies referred to are " . $info->{calais}{company}[0] . "and " . $info->{calais}{company}[1];
+say "Title of the page is " . $info->{htmlTitle};
+
+
+=cut
+
+sub infojson {
+    my $self = shift;
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/info', [
+        'format' => 'json',
+        'version' => '2.0.1',
+        'shortUrl' => $self->{bitlyurl},
+        'login' => $self->{USER},
+        'apiKey' => $self->{APIKEY},
+    ]);
+    $self->{response}->is_success || die 'Failed to get bit.ly link: ' . $self->{response}->status_line;
+    my $hash = $self->{bitlyurl};
+    $hash =~ s/http:\/\/bit\.ly\///g;
+    $self->{$self->{bitlyurl}}->{content} = $self->{json}->decode($self->{response}->{_content});
+    $self->{$self->{bitlyurl}}->{errorCode} = $self->{$self->{bitlyurl}}->{content}->{errorCode};
+    if ($self->{$self->{bitlyurl}}->{errorCode} == 0 ) {
+        $self->{$self->{bitlyurl}}->{info} = $self->{$self->{bitlyurl}}->{content}->{results}->{$hash};
+        return $self->{$self->{bitlyurl}}->{info};
+    } else {
+        return;
+    }
+}
+
+
+=head2 clicksxml
 
 Get click thru information for a shortened bit.ly URL. By default, the method will use the value that's stored in $bitly->{bitlyurl}. To be sure you're getting info on the correct URL, it's a good idea to set this value before getting any info on it.
 
@@ -313,7 +351,7 @@ say "Total number of direct clicks received are: " . ${$clicks->{referrers}->{no
 
 =cut
 
-sub clicks {
+sub clicksxml {
     my $self = shift;
     $self->{response} = $self->{browser}->post($self->{BASE} . '/stats', [
         'format' => 'xml',
@@ -332,6 +370,40 @@ sub clicks {
         return;
     }
 }
+
+
+=head2 clicks
+
+Get click thru information for a shortened bit.ly URL. By default, the method will use the value that's stored in $bitly->{bitlyurl}. To be sure you're getting info on the correct URL, it's a good idea to set this value before getting any info on it.
+
+$bitly->{bitlyurl} = "http://bit.ly/jmv6";
+my $clicks = $bitly->clicks();
+
+say "Total number of clicks received: " . $clicks->{clicks};
+say "Total number of direct clicks received are: " . ${$clicks->{referrers}->{nodeKeyVal}[0]}->{direct}
+
+=cut
+
+sub clicks {
+    my $self = shift;
+    $self->{response} = $self->{browser}->post($self->{BASE} . '/stats', [
+        'format' => 'json',
+        'version' => '2.0.1',
+        'shortUrl' => $self->{bitlyurl},
+        'login' => $self->{USER},
+        'apiKey' => $self->{APIKEY},
+    ]);
+    $self->{response}->is_success || die 'Failed to get bit.ly link: ' . $self->{response}->status_line;
+    $self->{$self->{bitlyurl}}->{content} = $self->{json}->decode($self->{response}->{_content});
+    $self->{$self->{bitlyurl}}->{errorCode} = $self->{$self->{bitlyurl}}->{content}->{errorCode};
+    if ($self->{$self->{bitlyurl}}->{errorCode} == 0 ) {
+        $self->{$self->{bitlyurl}}->{clicks} = $self->{$self->{bitlyurl}}->{content}->{results};
+        return $self->{$self->{bitlyurl}}->{clicks};
+    } else {
+        return;
+    }
+}
+
 
 =head2 errors
 
