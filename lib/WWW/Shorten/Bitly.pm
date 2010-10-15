@@ -31,12 +31,12 @@ WWW::Shorten::Bitly - Interface to shortening URLs using L<http://bit.ly>
 
 =head1 VERSION
 
-$Revision: 1.14 $
+$Revision: 1.17 $
 
 =cut
 
 BEGIN {
-    our $VERSION = do { my @r = (q$Revision: 1.16 $ =~ /\d+/g); sprintf "%1d."."%02d" x $#r, @r }; # must be all one line, for MakeMaker
+    our $VERSION = do { my @r = (q$Revision: 1.17 $ =~ /\d+/g); sprintf "%1d."."%02d" x $#r, @r }; # must be all one line, for MakeMaker
     $WWW::Shorten::Bitly::VERBOSITY = 2;
 }
 
@@ -283,19 +283,12 @@ say "Title of the page is " . $info->{htmlTitle};
 
 sub info {
     my $self = shift;
-    $self->{response} = $self->{browser}->post($self->{BASE} . '/info', [
-        'format' => 'xml',
-        'version' => '2.0.1',
-        'shortUrl' => $self->{bitlyurl},
-        'login' => $self->{USER},
-        'apiKey' => $self->{APIKEY},
-    ]);
+    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/info?format=xml&shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
     $self->{response}->is_success || die 'Failed to get bit.ly link: ' . $self->{response}->status_line;
     $self->{$self->{bitlyurl}}->{content} = $self->{xml}->XMLin($self->{response}->{_content});
     $self->{$self->{bitlyurl}}->{errorCode} = $self->{$self->{bitlyurl}}->{content}->{errorCode};
-    if ($self->{$self->{bitlyurl}}->{errorCode} == 0 ) {
-        $self->{$self->{bitlyurl}}->{info} = $self->{$self->{bitlyurl}}->{content}->{results}->{doc};
-        return $self->{$self->{bitlyurl}}->{info};
+    if ((!$self->{$self->{bitlyurl}}->{errorCode} || $self->{$self->{bitlyurl}}->{errorCode} == 0) || $self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
+        return $self->{$self->{bitlyurl}}->{content}->{data}->{info};
     } else {
         return;
     }
@@ -412,7 +405,6 @@ sub clicks {
 sub errors {
     my $self = shift;
     $self->{response} = $self->{browser}->post($self->{BASE} . '/errors', [
-        'version' => '2.0.1',
         'login' => $self->{USER},
         'apiKey' => $self->{APIKEY},
     ]);
