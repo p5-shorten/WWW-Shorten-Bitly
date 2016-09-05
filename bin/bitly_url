@@ -21,30 +21,24 @@ C<bitly_url> - Command-line interface to WWW::Shorten::Bitly
 
 =head1 SYNOPSIS
 
-bitly_url http://google.com
+    bitly_url http://google.com
 
-bitly_url http://google.com http://www.youtube.com
+    bitly_url http://google.com http://www.youtube.com
 
 =head1 DESCRIPTION
 
-bitly_url shortens URLS supplied on the commandline.
-You have to setup a .bitly config file to use it.
-
-=head1 SEE ALSO
-
-WWW::Shorten::Bitly
+bitly_url shortens URLS supplied on the command-line.
+You have to setup a C<.bitly> config file to use it.
 
 =head1 AUTHOR
 
-Joerg Meltzer < joerg {at}  joergmeltzer . de >
+Joerg Meltzer <F<joerg@joergmeltzer.de>>
 
-=head1 COPYRIGHT
+=head1 COPYRIGHT & LICENSE
 
-Copyright (c) 2009 Pankaj Jain, All Rights Reserved
-<http://blog.linosx.com>.
+Copyright (c) 2009 Pankaj Jain, All Rights Reserved L<http://blog.pjain.me>.
 
-Copyright (c) 2009 Teknatus Solutions Private Limited, All Rights Reserved
-<http://www.teknatus.com>.
+Copyright (c) 2009 Teknatus Solutions LLC, All Rights Reserved L<http://teknatus.com>.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
