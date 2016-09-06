@@ -50,6 +50,90 @@ Please remember to check out `http://code.google.com/p/bitly-api/wiki/ApiDocumen
 
 # FUNCTIONS
 
+In the non-OO form, [WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) makes the following functions available.
+
+## makeashorterlink
+
+The function `makeashorterlink` will call the [http://bitly.com](http://bitly.com) web site,
+passing it your long URL and will return the shorter version.
+
+[http://bitly.com](http://bitly.com) requires the use of a user id and API key to shorten links.
+
+## makealongerlink
+
+The function `makealongerlink` does the reverse. `makealongerlink`
+will accept as an argument either the full URL or just the identifier.
+
+If anything goes wrong, either function will return `undef`.
+
+# ATTRIBUTES
+
+In the OO form, each [WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) instance makes the following
+attributes available. Please note that changing any attribute will unset the
+["access\_token" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#access_token) attribute and effectively log you out.
+
+## access\_token
+
+    my $token = $bitly->access_token;
+    $bitly = $bitly->access_token('some_access_token'); # method chaining
+
+Gets or sets the `access_token`. If the token is set, then we won't try to login.
+You can set this ahead of time if you like, or it will be set on the first method
+call or on ["login" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#login).
+
+## base\_url
+
+    my $url = $bitly->base_url;
+    $bitly = $bitly->base_url(
+        URI->new('https://api.bitly.com')
+    ); # method chaining
+
+Gets or sets the `base_url`. The default is [https://api.bitly.com](https://api.bitly.com).
+
+## client\_id
+
+    my $id = $bitly->client_id;
+    $bitly = $bitly->client_id('some_client_id'); # method chaining
+
+Gets or sets the `client_id`. This is used in the
+[Resource Owner Credentials Grants](https://dev.bitly.com/authentication.html#resource_owner_credentials)
+login method along with the ["client\_secret" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#client_secret) attribute.
+
+## client\_secret
+
+    my $secret = $bitly->client_secret;
+    $bitly = $bitly->client_secret('some_secret'); # method chaining
+
+Gets or sets the `client_secret`. This is used in the
+[Resource Owner Credentials Grants](https://dev.bitly.com/authentication.html#resource_owner_credentials)
+login method along with the ["client\_id" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#client_id) attribute.
+
+## password
+
+    my $password = $bitly->password;
+    $bitly = $bitly->password('some_secret'); # method chaining
+
+Gets or sets the `password`. This is used in both the
+[Resource Owner Credentials Grants](https://dev.bitly.com/authentication.html#resource_owner_credentials)
+and the
+[HTTP Basic Authentication](https://dev.bitly.com/authentication.html#basicauth)
+login methods.
+
+## username
+
+    my $username = $bitly->username;
+    $bitly = $bitly->username('my_username'); # method chaining
+
+Gets or sets the `username`. This is used in both the
+[Resource Owner Credentials Grants](https://dev.bitly.com/authentication.html#resource_owner_credentials)
+and the
+[HTTP Basic Authentication](https://dev.bitly.com/authentication.html#basicauth)
+login methods.
+
+# METHODS
+
+In the OO form, [WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) makes the following methods available.
+
 ## new
 
 Create a new object instance using your [http://bitly.com](http://bitly.com) user id and API key.
@@ -69,20 +153,6 @@ instance like this:
         APIKEY => "bitly_api_key",
         jmp => 1
     );
-
-## makeashorterlink
-
-The function `makeashorterlink` will call the [http://bitly.com](http://bitly.com) web site,
-passing it your long URL and will return the shorter version.
-
-[http://bitly.com](http://bitly.com) requires the use of a user id and API key to shorten links.
-
-## makealongerlink
-
-The function `makealongerlink` does the reverse. `makealongerlink`
-will accept as an argument either the full URL or just the identifier.
-
-If anything goes wrong, either function will return `undef`.
 
 ## shorten
 

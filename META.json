@@ -51,7 +51,9 @@
          "requires" : {
             "Carp" : "0",
             "Exporter" : "0",
+            "File::HomeDir" : "1.00",
             "JSON::MaybeXS" : "0",
+            "LWP::Protocol::https" : "0",
             "URI" : "1.58",
             "WWW::Shorten" : "3.09",
             "base" : "0",

@@ -2,53 +2,139 @@ package WWW::Shorten::Bitly;
 
 use warnings;
 use strict;
+use Carp ();
+use File::Spec ();
+use File::HomeDir ();
+use JSON::MaybeXS ();
+use Path::Tiny qw(path);
+use Scalar::Util qw(blessed);
+use URI ();
+
 use base qw( WWW::Shorten::generic Exporter );
+our @EXPORT = qw(new version);
 our $VERSION = '1.200';
 $VERSION = eval $VERSION;
 
-use Carp ();
-use File::Spec ();
-use JSON::MaybeXS ();
+use constant BASE_BLY => 'https://api.bitly.com';
 
-our @EXPORT = qw(new version);
+# _attr (static)
+sub _attr {
+    my $self = shift;
+    my $attr = lc(_trim(shift) || '');
+    # attribute list is small enough to just grep each time. meh.
+    Carp::croak("Invalid attribute") unless grep {$attr eq $_} @{_attrs()};
+    return $self->{$attr} unless @_;
+    # unset the access_token if any other field is set
+    # this ensures we're always connecting properly.
+    $self->{access_token} = undef;
+    my $val = shift;
+    unless (defined($val)) {
+        $self->{$attr} = undef;
+        return $self;
+    }
 
+    if ($attr eq 'base_url') {
+        # coerce to URI
+        $val = (blessed($val) && $val->isa('URI'))? $val: URI->new($val);
+        #warn "Setting $attr to ". ($val || 'undef');
+        $self->{$attr} = $val;
+    }
+    else {
+        # all others are string values
+        $val = (ref($val))? undef: $val;
+        $self->{$attr} = $val;
+    }
+    return $self;
+}
 
-use constant BASE_JMP => 'http://api.j.mp';
-use constant BASE_BLY => 'http://api.bitly.com';
+# _attrs (static, private)
+{
+    my $attrs; # mimic the state keyword
+    sub _attrs {
+        return $attrs if $attrs;
+        $attrs = [
+            qw(username password access_token client_id client_secret),
+            qw(base_url),
+        ];
+        return $attrs;
+    }
+}
+
+# _parse_config (static, private)
+{
+    my $config; # mimic the state keyword
+    sub _parse_config {
+        return $config if $config;
+        # only parse the file once, please.
+        $config = {};
+        my $file = $^O eq 'MSWin32'? '_bitly': '.bitly';
+        my $path = path(File::Spec->catfile(File::HomeDir->my_home(), $file));
+
+        if ($path && $path->is_file) {
+            my @lines = $path->lines_utf8({chomp => 1});
+            my $attrs = _attrs();
+
+            for my $line (@lines) {
+                $line = _trim($line) || '';
+                next if $line =~ /^\s*[;#]/; # skip comments
+                $line =~ s/\s+[;#].*$//gm; # trim off comments
+                next unless $line && $line =~ /=/; # make sure we have a =
+
+                my ($key, $val) = split(/(?<![^\\]\\)=/, $line, 2);
+                $key = lc(_trim($key) || '');
+                $val = _trim($val);
+                next unless $key && $val;
+                $key = 'username' if $key eq 'user';
+                next unless grep {$key eq $_} @{$attrs};
+                $config->{$key} = $val;
+            }
+        }
+        return $config;
+    }
+}
+
+# _trim (private)
+sub _trim {
+    my $input = shift;
+    return $input unless defined $input && !ref($input) && length($input);
+    $input =~ s/\A\s*//;
+    $input =~ s/\s*\z//;
+    return $input;
+}
 
 sub new {
-    my ($class) = shift;
-    my %args = @_;
-    $args{source} ||= "perlteknatusbitly";
-    $args{jmp} ||= 0;
+    my $class = shift;
+    my $args;
+    if ( @_ == 1 && ref $_[0] ) {
+        my %copy = eval { %{ $_[0] } }; # try shallow copy
+        Carp::croak("Argument to $class->new() could not be dereferenced as a hash") if $@;
+        $args = \%copy;
+    }
+    elsif ( @_ % 2 == 0 ) {
+        $args = {@_};
+    }
+    else {
+        Carp::croak("$class->new() got an odd number of elements");
+    }
 
-    my $bitlyrc = $^O =~/Win32/i ? File::Spec->catfile($ENV{HOME}, "_bitly") : File::Spec->catfile($ENV{HOME}, ".bitly");
-    if (-r $bitlyrc){
-        open my $fh, "<", $bitlyrc or die "can't open .bitly file $!";
-        while(<$fh>){
-            $args{USER} ||= $1 if m{^USER=(.*)};
-            $args{APIKEY} ||= $1 if m{^APIKEY=(.*)};
-        }
-        close $fh;
+    my $attrs = _attrs();
+    # start with what's in our config file (if anything)
+    my $href = _parse_config();
+    # override with anything passed in
+    for my $key (%{$args}) {
+        my $lc_key = lc($key);
+        $lc_key = 'username' if $lc_key eq 'user';
+        next unless grep {$lc_key eq $_} @{$attrs};
+        $href->{$lc_key} = $args->{$key};
     }
-    if (!defined $args{USER} || !defined $args{APIKEY}) {
-        carp("USER and APIKEY are both required parameters.\n");
-        return -1;
-    }
-    my $bitly;
-    $bitly->{USER} = $args{USER};
-    $bitly->{APIKEY} = $args{APIKEY};
-    if ($args{jmp} == 1) {
-        $bitly->{BASE} = BASE_JMP;
-    } else {
-        $bitly->{BASE} = BASE_BLY;
-    }
-    $bitly->{json} = JSON::Any->new;
-    $bitly->{browser} = LWP::UserAgent->new(agent => $args{source});
-    $bitly->{xml} = new XML::Simple(SuppressEmpty => 1);
-    my ($self) = $bitly;
-    bless $self, $class;
+    $href->{base_url} = URI->new($href->{base_url} // BASE_BLY);
+    $href->{source} = $args->{source} || "perlteknatusbitly";
+    return bless $href, $class;
 }
+
+sub access_token { return shift->_attr('access_token', @_); }
+
+sub base_url { return shift->_attr('base_url', @_); }
 
 sub bitly_pro_domain {
     my $self = shift;
@@ -71,6 +157,10 @@ sub bitly_pro_domain {
         return 1;
     }
 }
+
+sub client_id { return shift->_attr('client_id', @_); }
+
+sub client_secret { return shift->_attr('client_secret', @_); }
 
 sub clicks {
     my $self = shift;
@@ -216,6 +306,8 @@ sub makealongerlink {
     return $bitly->{longurl};
 }
 
+sub password { return shift->_attr('password', @_); }
+
 sub qr_code {
     my $self = shift;
     my %args = @_;
@@ -256,6 +348,8 @@ sub shorten {
     return $self->{bitlyurl} if ( $self->{json}->jsonToObj($self->{response}->{_content})->{status_code} == 200 );
 }
 
+sub username { return shift->_attr('username', @_); }
+
 sub validate {
     my $self = shift;
     my %args = @_;
@@ -273,12 +367,7 @@ sub validate {
     }
 }
 
-sub version {
-    my $self = shift;
-    my($version) = shift;# not sure why $version isn't being set. need to look at it
-    warn "Version $version is later then $WWW::Shorten::Bitly::VERSION. It may not be supported" if (defined ($version) && ($version > $WWW::Shorten::Bitly::VERSION));
-    return $WWW::Shorten::Bitly::VERSION;
-}
+sub version { return $WWW::Shorten::Bitly::VERSION }
 
 1; # End of WWW::Shorten::Bitly
 __END__
@@ -335,6 +424,90 @@ Please remember to check out C<http://code.google.com/p/bitly-api/wiki/ApiDocume
 
 =head1 FUNCTIONS
 
+In the non-OO form, L<WWW::Shorten::Bitly> makes the following functions available.
+
+=head2 makeashorterlink
+
+The function C<makeashorterlink> will call the L<http://bitly.com> web site,
+passing it your long URL and will return the shorter version.
+
+L<http://bitly.com> requires the use of a user id and API key to shorten links.
+
+=head2 makealongerlink
+
+The function C<makealongerlink> does the reverse. C<makealongerlink>
+will accept as an argument either the full URL or just the identifier.
+
+If anything goes wrong, either function will return C<undef>.
+
+=head1 ATTRIBUTES
+
+In the OO form, each L<WWW::Shorten::Bitly> instance makes the following
+attributes available. Please note that changing any attribute will unset the
+L<WWW::Shorten::Bitly/access_token> attribute and effectively log you out.
+
+=head2 access_token
+
+    my $token = $bitly->access_token;
+    $bitly = $bitly->access_token('some_access_token'); # method chaining
+
+Gets or sets the C<access_token>. If the token is set, then we won't try to login.
+You can set this ahead of time if you like, or it will be set on the first method
+call or on L<WWW::Shorten::Bitly/login>.
+
+=head2 base_url
+
+    my $url = $bitly->base_url;
+    $bitly = $bitly->base_url(
+        URI->new('https://api.bitly.com')
+    ); # method chaining
+
+Gets or sets the C<base_url>. The default is L<https://api.bitly.com>.
+
+=head2 client_id
+
+    my $id = $bitly->client_id;
+    $bitly = $bitly->client_id('some_client_id'); # method chaining
+
+Gets or sets the C<client_id>. This is used in the
+L<Resource Owner Credentials Grants|https://dev.bitly.com/authentication.html#resource_owner_credentials>
+login method along with the L<WWW::Shorten::Bitly/client_secret> attribute.
+
+=head2 client_secret
+
+    my $secret = $bitly->client_secret;
+    $bitly = $bitly->client_secret('some_secret'); # method chaining
+
+Gets or sets the C<client_secret>. This is used in the
+L<Resource Owner Credentials Grants|https://dev.bitly.com/authentication.html#resource_owner_credentials>
+login method along with the L<WWW::Shorten::Bitly/client_id> attribute.
+
+=head2 password
+
+    my $password = $bitly->password;
+    $bitly = $bitly->password('some_secret'); # method chaining
+
+Gets or sets the C<password>. This is used in both the
+L<Resource Owner Credentials Grants|https://dev.bitly.com/authentication.html#resource_owner_credentials>
+and the
+L<HTTP Basic Authentication|https://dev.bitly.com/authentication.html#basicauth>
+login methods.
+
+=head2 username
+
+    my $username = $bitly->username;
+    $bitly = $bitly->username('my_username'); # method chaining
+
+Gets or sets the C<username>. This is used in both the
+L<Resource Owner Credentials Grants|https://dev.bitly.com/authentication.html#resource_owner_credentials>
+and the
+L<HTTP Basic Authentication|https://dev.bitly.com/authentication.html#basicauth>
+login methods.
+
+=head1 METHODS
+
+In the OO form, L<WWW::Shorten::Bitly> makes the following methods available.
+
 =head2 new
 
 Create a new object instance using your L<http://bitly.com> user id and API key.
@@ -354,20 +527,6 @@ instance like this:
         APIKEY => "bitly_api_key",
         jmp => 1
     );
-
-=head2 makeashorterlink
-
-The function C<makeashorterlink> will call the L<http://bitly.com> web site,
-passing it your long URL and will return the shorter version.
-
-L<http://bitly.com> requires the use of a user id and API key to shorten links.
-
-=head2 makealongerlink
-
-The function C<makealongerlink> does the reverse. C<makealongerlink>
-will accept as an argument either the full URL or just the identifier.
-
-If anything goes wrong, either function will return C<undef>.
 
 =head2 shorten
 

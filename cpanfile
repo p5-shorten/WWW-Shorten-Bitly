@@ -5,7 +5,9 @@ on 'runtime' => sub {
     requires 'base';
     requires 'Carp';
     requires 'Exporter';
+    requires 'File::HomeDir' => '1.00';
     requires 'JSON::MaybeXS';
+    requires 'LWP::Protocol::https';
     requires 'WWW::Shorten' => '3.09';
     requires 'URI' => '1.58';
 };
