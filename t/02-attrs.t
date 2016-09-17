@@ -20,33 +20,6 @@ isa_ok($bitly, 'WWW::Shorten::Bitly', 'new: instance created successfully');
     is($chain->access_token, $bitly->access_token, 'access_token: chain same');
 }
 
-# base_url
-{
-    my $val = $bitly->base_url();
-    isa_ok($val, 'URI', 'base_url: instance of URI');
-    is($val, 'https://api.bitly.com', 'base_url: as_string correct');
-
-    $bitly->base_url('foobar');
-    isa_ok($bitly->base_url, 'URI', 'base_url: instance of URI with bad URI');
-    is($bitly->base_url->as_string(), 'foobar', 'base_url: as_string same');
-
-    $bitly->base_url($val);
-    isa_ok($bitly->base_url, 'URI', 'base_url: instance of URI');
-    is($bitly->base_url()->as_string(), 'https://api.bitly.com', 'base_url: as_string correct');
-
-    $bitly->access_token('foo');
-    is($bitly->access_token, 'foo', 'access_token: set correctly');
-
-    $bitly->base_url($val);
-    isa_ok($bitly->base_url, 'URI', 'base_url: instance of URI');
-    is($bitly->base_url()->as_string(), 'https://api.bitly.com', 'base_url: as_string correct');
-    is($bitly->access_token, undef, 'access_token: unset correctly');
-
-    my $chain = $bitly->base_url($val);
-    isa_ok($chain, 'WWW::Shorten::Bitly', 'base_url: mutator chainable');
-    is($chain->base_url, $bitly->base_url, 'base_url: chain same');
-}
-
 # client_id
 {
     my $val = 'setting';

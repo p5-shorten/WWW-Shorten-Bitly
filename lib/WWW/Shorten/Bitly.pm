@@ -1,23 +1,24 @@
 package WWW::Shorten::Bitly;
 
-use warnings;
 use strict;
+use warnings;
 use Carp ();
-use File::Spec ();
 use File::HomeDir ();
-use JSON::MaybeXS ();
+use File::Spec ();
+use JSON::MaybeXS;
 use Path::Tiny qw(path);
 use Scalar::Util qw(blessed);
 use URI ();
 
 use base qw( WWW::Shorten::generic Exporter );
 our @EXPORT = qw(new version);
+
 our $VERSION = '1.200';
 $VERSION = eval $VERSION;
 
-use constant BASE_BLY => 'https://api.bitly.com';
+use constant BASE_BLY => $ENV{BITLY_API_URL} || 'https://api-ssl.bitly.com';
 
-# _attr (static)
+# _attr (private)
 sub _attr {
     my $self = shift;
     my $attr = lc(_trim(shift) || '');
@@ -32,18 +33,7 @@ sub _attr {
         $self->{$attr} = undef;
         return $self;
     }
-
-    if ($attr eq 'base_url') {
-        # coerce to URI
-        $val = (blessed($val) && $val->isa('URI'))? $val: URI->new($val);
-        #warn "Setting $attr to ". ($val || 'undef');
-        $self->{$attr} = $val;
-    }
-    else {
-        # all others are string values
-        $val = (ref($val))? undef: $val;
-        $self->{$attr} = $val;
-    }
+    $self->{$attr} = $val;
     return $self;
 }
 
@@ -51,23 +41,65 @@ sub _attr {
 {
     my $attrs; # mimic the state keyword
     sub _attrs {
-        return $attrs if $attrs;
+        return [@{$attrs}] if $attrs;
         $attrs = [
             qw(username password access_token client_id client_secret),
-            qw(base_url),
         ];
-        return $attrs;
+        return [@{$attrs}];
     }
+}
+
+# _json_request (static, private)
+sub _json_request {
+    my $url = shift;
+    Carp::croak("Invalid URI object") unless $url && blessed($url) && $url->isa('URI');
+    my $ua = __PACKAGE__->ua();
+    my $res = $ua->get($url);
+    Carp::croak("Invalid response") unless $res;
+    unless ($res->is_success) {
+        Carp::croak($res->status_line);
+    }
+
+    my $content_type = $res->header('Content-Type');
+    my $content = $res->decoded_content();
+    unless ($content_type && $content_type =~ m{application/json}) {
+        Carp::croak("Unexpected response: $content");
+    }
+    my $json = decode_json($content);
+    Carp::croak("Invalid data returned: $content") unless $json;
+    return $json->{data};
+}
+
+# _parse_args (static, private)
+sub _parse_args {
+    my $args;
+    if ( @_ == 1 && ref $_[0] ) {
+        my %copy = eval { %{ $_[0] } }; # try shallow copy
+        Carp::croak("Argument to method could not be dereferenced as a hash") if $@;
+        $args = \%copy;
+    }
+    elsif (@_==1 && !ref($_[0])) {
+        $args = {single_arg => $_[0]};
+    }
+    elsif ( @_ % 2 == 0 ) {
+        $args = {@_};
+    }
+    else {
+        Carp::croak("Method got an odd number of elements");
+    }
+    return $args;
 }
 
 # _parse_config (static, private)
 {
     my $config; # mimic the state keyword
     sub _parse_config {
-        return $config if $config;
+        # always give back a shallow copy
+        return {%{$config}} if $config;
         # only parse the file once, please.
         $config = {};
         my $file = $^O eq 'MSWin32'? '_bitly': '.bitly';
+        $file .= '_test' if $ENV{BITLY_TEST_CONFIG};
         my $path = path(File::Spec->catfile(File::HomeDir->my_home(), $file));
 
         if ($path && $path->is_file) {
@@ -89,11 +121,11 @@ sub _attr {
                 $config->{$key} = $val;
             }
         }
-        return $config;
+        return {%{$config}};
     }
 }
 
-# _trim (private)
+# _trim (static, private)
 sub _trim {
     my $input = shift;
     return $input unless defined $input && !ref($input) && length($input);
@@ -127,35 +159,28 @@ sub new {
         next unless grep {$lc_key eq $_} @{$attrs};
         $href->{$lc_key} = $args->{$key};
     }
-    $href->{base_url} = URI->new($href->{base_url} // BASE_BLY);
-    $href->{source} = $args->{source} || "perlteknatusbitly";
     return bless $href, $class;
 }
 
 sub access_token { return shift->_attr('access_token', @_); }
 
-sub base_url { return shift->_attr('base_url', @_); }
-
 sub bitly_pro_domain {
     my $self = shift;
-    my %args = @_;
-    $self->{USER} ||= $args{user};
-    $self->{APIKEY} ||= $args{apikey};
-    if ($args{url} !~ /bit\.ly/ || $args{url} !~ /j\.mp/) {
-        my @foo = split(/\//, $args{url});
-        my $domain = $foo[2];
-        $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/bitly_pro_domain?domain=' . $domain . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-        $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-        $self->{$args{url}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-        if ($self->{$args{url}}->{content}->{status_code} == 200 ) {
-            $self->{$args{url}}->{bitly_pro_domain} = $self->{$args{url}}->{content}->{data}->{bitly_pro_domain};
-            return $self->{$args{url}}->{bitly_pro_domain};
-        } else {
-            return;
-        }
-    } else {
-        return 1;
+    $self->login() unless ($self->access_token);
+
+    my $args = _parse_args(@_);
+    my $link = $args->{domain} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A domain parameter is required.\n");
     }
+
+    my $url = URI->new_abs('/v3/bitly_pro_domain', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        domain => $link,
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub client_id { return shift->_attr('client_id', @_); }
@@ -164,210 +189,249 @@ sub client_secret { return shift->_attr('client_secret', @_); }
 
 sub clicks {
     my $self = shift;
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/clicks?shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
+    $self->login() unless ($self->access_token);
 
-    if ($self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{clicks} = $self->{$self->{bitlyurl}}->{content}->{data}->{clicks}[0];
-        return $self->{$self->{bitlyurl}}->{clicks};
-    } else {
-        return;
+    my $args = _parse_args(@_);
+    my $link = $args->{link} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A link parameter is required.\n");
     }
+
+    my $url = URI->new_abs('/v3/link/clicks', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        link => $link,
+        unit => $args->{unit} || 'day',
+        units => $args->{units} || '-1',
+        rollup => $args->{rollup}? 'true': 'false',
+        timezone => $args->{timezone} || 'America/New_York',
+        limit => $args->{limit} || 100,
+        unit_reference_ts => $args->{unit_reference_ts} || 'now',
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub clicks_by_day {
     my $self = shift;
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/clicks_by_day?shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-    if ($self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{clicks_by_day} = $self->{$self->{bitlyurl}}->{content}->{data}->{clicks_by_day}[0]->{clicks};
-        return $self->{$self->{bitlyurl}}->{clicks_by_day};
-    } else {
-        return;
+    $self->login() unless ($self->access_token);
+
+    my $args = _parse_args(@_);
+    my $link = $args->{link} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A link parameter is required.\n");
     }
+    $args->{unit} = 'day';
+    $args->{units} = 7;
+    $args->{link} = $link;
+    return $self->clicks($args);
 }
 
 sub countries {
     my $self = shift;
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/countries?shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-    if ($self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{countries} = $self->{$self->{bitlyurl}}->{content}->{data}->{countries};
-        return $self->{$self->{bitlyurl}}->{countries};
-    } else {
-        return;
-    }
-}
+    $self->login() unless ($self->access_token);
 
-sub errors {
-    my $self = shift;
-    warn "errors - deprecated from BitLy API. It will no longer be supported" if (1.14 > $WWW::Shorten::Bitly::VERSION);
-    return;
-    $self->{response} = $self->{browser}->post($self->{BASE} . '/v3/errors', [
-        'version' => '3.0.0',
-        'login'   => $self->{USER},
-        'apiKey'  => $self->{APIKEY},
-    ]);
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{xml}->XMLin($self->{response}->{_content});
-    $self->{$self->{bitlyurl}}->{errorCode} = $self->{$self->{bitlyurl}}->{content}->{status_txt};
-    if ($self->{$self->{bitlyurl}}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{clicks} = $self->{$self->{bitlyurl}}->{content}->{results};
-        return $self->{$self->{bitlyurl}}->{clicks};
-    } else {
-        return;
+    my $args = _parse_args(@_);
+    my $link = $args->{link} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A link parameter is required.\n");
     }
+
+    my $url = URI->new_abs('/v3/link/countries', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        link => $link,
+        unit => $args->{unit} || 'day',
+        units => $args->{units} || '-1',
+        timezone => $args->{timezone} || 'America/New_York',
+        limit => $args->{limit} || 100,
+        unit_reference_ts => $args->{unit_reference_ts} || 'now',
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub expand {
     my $self = shift;
-    my %args = @_;
-    if (!defined $args{URL}) {
-        croak("URL is required.\n");
-        return -1;
+    $self->login() unless ($self->access_token);
+
+    my $args = _parse_args(@_);
+    my $short_url = $args->{shortUrl} || $args->{URL} || $args->{url} || $args->{single_arg} || '';
+    unless ($short_url) {
+        Carp::croak("A shortUrl parameter is required.\n");
     }
-    $self->{response} = $self->{browser}->post($self->{BASE} . '/v3/expand', [
-        'history'  => '1',
-        'version'  => '3.0.0',
-        'shortUrl' => $args{URL},
-        'login'    => $self->{USER},
-        'apiKey'   => $self->{APIKEY},
-    ]);
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    return undef if ( $self->{json}->jsonToObj($self->{response}->{_content})->{status_code} != 200 );
-    $self->{longurl} = $self->{json}->jsonToObj($self->{response}->{_content})->{data}->{expand}[0]->{long_url};
-    return $self->{longurl} if ( $self->{json}->jsonToObj($self->{response}->{_content})->{status_code} == 200 );
+
+    my $url = URI->new_abs('/v3/expand', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        shortUrl => $short_url,
+        hash => $args->{hash},
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub info {
     my $self = shift;
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/info?shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-    if ($self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{info} = $self->{$self->{bitlyurl}}->{content}->{data}->{info}[0];
-        return $self->{$self->{bitlyurl}}->{info};
-    } else {
-        return;
+    $self->login() unless ($self->access_token);
+    my $args = _parse_args(@_);
+
+    my $link = $args->{shortUrl} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A shortUrl parameter is required.\n");
     }
+
+    my $url = URI->new_abs('/v3/info', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        shortUrl => $link,
+        hash => $args->{hash},
+        expand_user => $args->{expand_user}? 'true': 'false',
+        format => 'json',
+    );
+    return _json_request($url);
+}
+
+sub login {
+    my $self = shift;
+    return $self if $self->{access_token};
+
+    my $username = $self->{username};
+    my $password = $self->{password};
+    my $id = $self->{client_id};
+    my $secret = $self->{client_secret};
+    my $url = URI->new_abs('/oauth/access_token', BASE_BLY);
+    unless ($username && $password) {
+        Carp::croak("Can't login without at least a username and password");
+    }
+    my $req = HTTP::Request->new(POST => $url);
+    $req->header(Accept => 'application/json');
+    if ($id && $secret) {
+        $req->authorization_basic($id,$secret);
+        my $content = URI->new();
+        $content->query_form(
+            grant_type=>'password',
+            username=>$username,
+            password=>$password,
+        );
+        $req->content($content->query());
+    }
+    else {
+        $req->authorization_basic($username,$password);
+    }
+    my $ua = __PACKAGE__->ua();
+    my $res = $ua->request($req);
+    Carp::croak("Invalid response") unless $res;
+    unless ($res->is_success) {
+        Carp::croak($res->status_line);
+    }
+
+    my $content_type = $res->header('Content-Type');
+    my $content = $res->decoded_content();
+    if ($content_type && $content_type =~ m{application/json}) {
+        my $json = decode_json($res->decoded_content());
+        Carp::croak("Invalid data returned") unless $json;
+        Carp::croak($content) unless ($json->{access_token});
+        $content = $json->{access_token};
+    }
+    $self->access_token($content);
+    return $self;
 }
 
 sub lookup {
     my $self = shift;
+    $self->login() unless ($self->access_token);
+    my $args = _parse_args(@_);
+
+    my $link = $args->{url} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A url parameter is required.\n");
+    }
+
+    my $url = URI->new_abs('/v3/link/lookup', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        link => $link,
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub makeashorterlink {
-    my $url = shift or croak('No URL passed to makeashorterlink');
-    my ($user, $apikey) = @_ or croak('No username or apikey passed to makeshorterlink');
-    if (!defined $url || !defined $user || !defined $apikey ) {
-        croak("url, user and apikey are required for shortening a URL with bitly.com - in that specific order");
-        &help();
+    my $self;
+    if ($_[0] && blessed($_[0]) && $_[0]->isa('WWW::Shorten::Bitly')) {
+        $self = shift;
     }
-    my $ua = __PACKAGE__->ua();
-    my $bitly;
-    $bitly->{json} = JSON::Any->new;
-    $bitly->{xml} = new XML::Simple(SuppressEmpty => 1);
-    my $biturl = BASE_BLY . '/v3/shorten';
-    $bitly->{response} = $ua->post($biturl, [
-        'format'  => 'json',
-        'history' => '1',
-        'version' => '3.0.0',
-        'longUrl' => $url,
-        'login' => $user,
-        'apiKey' => $apikey,
-    ]);
-    $bitly->{response}->is_success || die 'Failed to get bitly.com link: ' . $bitly->{response}->status_line;
-    $bitly->{bitlyurl} = $bitly->{json}->jsonToObj($bitly->{response}->{_content})->{data}->{url};
-    return unless $bitly->{response}->is_success;
-    return $bitly->{bitlyurl};
+    my $url = shift or Carp::croak('No URL passed to makeashorterlink');
+    $self ||= __PACKAGE__->new(@_);
+    my $res = $self->shorten(longUrl=>$url, @_);
+    return $res->{url};
 }
 
 sub makealongerlink {
-    my $url = shift or croak('No shortened bitly.com URL passed to makealongerlink');
-    my ($user, $apikey) = @_ or croak('No username or apikey passed to makealongerlink');
-    my $ua = __PACKAGE__->ua();
-    my $bitly;
-    my @foo = split(/\//, $url);
-    $bitly->{json} = JSON::Any->new;
-    $bitly->{xml} = new XML::Simple(SuppressEmpty => 1);
-    $bitly->{response} = $ua->post(BASE_BLY . '/v3/expand', [
-        'version'  => '3.0.0',
-        'shortUrl' => $url,
-        'login' => $user,
-        'apiKey' => $apikey,
-    ]);
-    $bitly->{response}->is_success || die 'Failed to get bitly.com link: ' . $bitly->{response}->status_line;
-    $bitly->{longurl} = $bitly->{json}->jsonToObj($bitly->{response}->{_content})->{data}->{long_url};
-    return undef unless $bitly->{response}->is_success;
-    my $content = $bitly->{response}->content;
-    return $bitly->{longurl};
+    my $self;
+    if ($_[0] && blessed($_[0]) && $_[0]->isa('WWW::Shorten::Bitly')) {
+        $self = shift;
+    }
+    my $url = shift or Carp::croak('No URL passed to makealongerlink');
+    $self ||= __PACKAGE__->new(@_);
+    my $res = $self->expand(shortUrl=>$url, @_);
+    return '' unless ref($res->{expand}) eq 'ARRAY';
+    for my $row (@{$res->{expand}}) {
+        return $row->{long_url};
+    }
+    return '';
 }
 
 sub password { return shift->_attr('password', @_); }
 
-sub qr_code {
-    my $self = shift;
-    my %args = @_;
-    $self->{bitlyurl} ||= $args{shorturl};
-    return $self->{bitlyurl} . '.qrcode';
-}
-
 sub referrers {
     my $self = shift;
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/referrers?shortUrl=' . $self->{bitlyurl} . '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{bitlyurl}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-    if ($self->{$self->{bitlyurl}}->{content}->{status_code} == 200 ) {
-        $self->{$self->{bitlyurl}}->{referrers} = $self->{$self->{bitlyurl}}->{content}->{data}->{referrers};
-        return $self->{$self->{bitlyurl}}->{referrers};
-    } else {
-        return;
+    $self->login() unless ($self->access_token);
+    my $args = _parse_args(@_);
+
+    my $link = $args->{link} || $args->{single_arg} || '';
+    unless ($link) {
+        Carp::croak("A link parameter is required.\n");
     }
+
+    my $url = URI->new_abs('/v3/link/referrers', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        link => $link,
+        unit => $args->{unit} || 'day',
+        units => $args->{units} || -1,
+        timezone => $args->{timezone} || 'America/New_York',
+        limit => $args->{limit} || 100,
+        unit_reference_ts => $args->{unit_reference_ts} || 'now',
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub shorten {
     my $self = shift;
-    my %args = @_;
-    if (!defined $args{URL}) {
-        croak("URL is required.\n");
-        return -1;
+    $self->login() unless ($self->access_token);
+    my $args = _parse_args(@_);
+
+    my $long_url = $args->{longUrl} || $args->{single_arg} || $args->{URL} || $args->{url} || '';
+    my $domain = $args->{domain} || undef;
+    unless ($long_url) {
+        Carp::croak("A longUrl parameter is required.\n");
     }
-    $self->{response} = $self->{browser}->post($self->{BASE} . '/v3/shorten', [
-        'history' => '1',
-        'version' => '3.0.0',
-        'longUrl' => $args{URL},
-        'login' => $self->{USER},
-        'apiKey' => $self->{APIKEY},
-    ]);
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    return undef if ( $self->{json}->jsonToObj($self->{response}->{_content})->{status_code} != 200 );
-    $self->{bitlyurl} = $self->{json}->jsonToObj($self->{response}->{_content})->{data}->{url};
-    return $self->{bitlyurl} if ( $self->{json}->jsonToObj($self->{response}->{_content})->{status_code} == 200 );
+
+    my $url = URI->new_abs('/v3/shorten', BASE_BLY);
+    $url->query_form(
+        access_token => $self->access_token(),
+        longUrl => $long_url,
+        domain => $domain,
+        format => 'json',
+    );
+    return _json_request($url);
 }
 
 sub username { return shift->_attr('username', @_); }
 
-sub validate {
-    my $self = shift;
-    my %args = @_;
-    $self->{USER} ||= $args{user};
-    $self->{APIKEY} ||= $args{apikey};
-
-    $self->{response} = $self->{browser}->get($self->{BASE} . '/v3/validate?x_login=' . $self->{USER} . '&x_apiKey=' . $self->{APIKEY}. '&login=' . $self->{USER} . '&apiKey=' . $self->{APIKEY});
-    $self->{response}->is_success || die 'Failed to get bitly.com link: ' . $self->{response}->status_line;
-    $self->{$self->{USER}}->{content} = $self->{json}->jsonToObj($self->{response}->{_content});
-    if ($self->{json}->jsonToObj($self->{response}->{_content})->{data}->{valid} == 1) {
-        $self->{$self->{USER}}->{valid} = $self->{$self->{USER}}->{content}->{data}->{valid};
-            return $self->{$self->{USER}}->{valid};
-    } else {
-        return;
-    }
-}
-
-sub version { return $WWW::Shorten::Bitly::VERSION }
 
 1; # End of WWW::Shorten::Bitly
 __END__
@@ -378,55 +442,75 @@ WWW::Shorten::Bitly - Interface to shortening URLs using L<http://bitly.com>
 
 =head1 SYNOPSIS
 
-L<WWW::Shorten::Bitly> provides an easy interface for shortening URLs using
-L<http://bitly.com>. In addition to shortening URLs, you can pull statistics
-that L<http://bitly.com> gathers regarding each shortened URL.
+The traditional way, using the L<WWW::Shorten> interface:
 
-L<WWW::Shorten::Bitly> provides two interfaces. The first is the common
-C<makeashorterlink> and C<makealongerlink> that L<WWW::Shorten> provides.
-However, due to the way the L<http://bitly.com> API works, additional arguments
-are required. The second provides a better way of retrieving additional
-information and statistics about a L<http://bitly.com> URL.
+    use strict;
+    use warnings;
 
     use WWW::Shorten::Bitly;
+    # use WWW::Shorten 'Bitly';  # or, this way
 
-    my $url = "http://www.example.com";
+    # if you have a config file with your credentials:
+    my $short_url = makeashorterlink('http://www.foo.com/some/long/url');
+    my $long_url  = makealongerlink($short_url);
 
-    my $tmp = makeashorterlink($url, 'MY_BITLY_USERNAME', 'MY_BITLY_API_KEY');
-    my $tmp1 = makealongerlink($tmp, 'MY_BITLY_USERNAME', 'MY_BITLY_API_KEY');
+    # otherwise
+    my $short = makeashorterlink('http://www.foo.com/some/long/url', {
+        username => 'username',
+        password => 'password',
+        ...
+    });
 
-or
+Or, the Object-Oriented way:
 
+    use strict;
+    use warnings;
+    use Data::Dumper;
+    use Try::Tiny qw(try catch);
     use WWW::Shorten::Bitly;
 
-    my $url = "http://www.example.com";
     my $bitly = WWW::Shorten::Bitly->new(
-        URL => $url,
-        USER => "my_user_id",
-        APIKEY => "my_api_key"
+        username => 'username',
+        password => 'password',
+        client_id => 'adflkdgalgka',
+        client_secret => 'sldfkjasdflg',
     );
 
-    $bitly->shorten(URL => $url);
-    print "shortened URL is $bitly->{bitlyurl}\n";
+    try {
+        my $res = $bitly->shorten(longUrl => 'http://google.com/');
+        say Dumper $res;
+        # {
+        #   global_hash => "900913",
+        #   hash => "ze6poY",
+        #   long_url => "http://google.com/",
+        #   new_hash => 0,
+        #   url => "http://bit.ly/ze6poY"
+        # }
+    }
+    catch {
+        die("Oh, no! $_");
+    };
 
-    $bitly->expand(URL => $bitly->{bitlyurl});
-    print "expanded/original URL is $bitly->{longurl}\n";
+=head1 DESCRIPTION
 
-    my $info = $bitly->info();
-    say "Title of the page is " . $info->{title};
-    say "Created by " . $info->{created_by};
+A Perl interface to the L<Bitly.com API|https://dev.bitly.com/api.html>.
 
-    my $clicks = $bitly->clicks();
-    say "Total number of clicks received: " . $clicks->{user_clicks};
-    say "Total number of global clicks received are: " . $clicks->{global_clicks};
-
-Please remember to check out C<http://code.google.com/p/bitly-api/wiki/ApiDocumentation#/v3/info> for more details on V3 of the Bitly.com API
+You can either use the traditional (non-OO) interface provided by L<WWW::Shorten>.
+Or, you can use the OO interface that provides you with more functionality.
 
 =head1 FUNCTIONS
 
 In the non-OO form, L<WWW::Shorten::Bitly> makes the following functions available.
 
 =head2 makeashorterlink
+
+    my $short_url = makeashorterlink('https://some_long_link.com');
+    # OR
+    my $short_url = makeashorterlink('https://some_long_link.com', {
+        username => 'foo',
+        password => 'bar',
+        # any other attribute can be set as well.
+    });
 
 The function C<makeashorterlink> will call the L<http://bitly.com> web site,
 passing it your long URL and will return the shorter version.
@@ -435,10 +519,18 @@ L<http://bitly.com> requires the use of a user id and API key to shorten links.
 
 =head2 makealongerlink
 
+    my $long_url = makealongerlink('http://bit.ly/ze6poY');
+    # OR
+    my $long_url = makealongerlink('http://bit.ly/ze6poY', {
+        username => 'foo',
+        password => 'bar',
+        # any other attribute can be set as well.
+    });
+
 The function C<makealongerlink> does the reverse. C<makealongerlink>
 will accept as an argument either the full URL or just the identifier.
 
-If anything goes wrong, either function will return C<undef>.
+If anything goes wrong, either function will die.
 
 =head1 ATTRIBUTES
 
@@ -454,15 +546,6 @@ L<WWW::Shorten::Bitly/access_token> attribute and effectively log you out.
 Gets or sets the C<access_token>. If the token is set, then we won't try to login.
 You can set this ahead of time if you like, or it will be set on the first method
 call or on L<WWW::Shorten::Bitly/login>.
-
-=head2 base_url
-
-    my $url = $bitly->base_url;
-    $bitly = $bitly->base_url(
-        URI->new('https://api.bitly.com')
-    ); # method chaining
-
-Gets or sets the C<base_url>. The default is L<https://api.bitly.com>.
 
 =head2 client_id
 
@@ -510,154 +593,193 @@ In the OO form, L<WWW::Shorten::Bitly> makes the following methods available.
 
 =head2 new
 
-Create a new object instance using your L<http://bitly.com> user id and API key.
-
     my $bitly = WWW::Shorten::Bitly->new(
-        URL => "http://www.example.com/this_is_one_example.html",
-        USER => "bitly_user_id",
-        APIKEY => "bitly_api_key"
+        access_token => 'sometokenIalreadyreceived24123123512451',
+        client_id => 'some id here',
+        client_secret => 'some super secret thing',
+        password => 'my password',
+        username => 'my_username@foobar.com'
     );
 
-To use L<http://bitly.com>'s new L<http://j.mp> service, just construct the
-instance like this:
+The constructor can take any of the attributes above as parameters. If you've
+logged in using some other form (OAuth2, etc.) then all you need to do is provide
+the C<access_token>.
 
-    my $bitly = WWW::Shorten::Bitly->new(
-        URL => "http://www.example.com/this_is_one_example.html",
-        USER => "bitly_user_id",
-        APIKEY => "bitly_api_key",
-        jmp => 1
-    );
-
-=head2 shorten
-
-Shorten a URL using L<http://bitly.com>. Calling the C<shorten> method will
-return the shorter URL, but will also store it in this instance until the next
-call is made.
-
-    my $url = "http://www.example.com";
-    my $shortstuff = $bitly->shorten(URL => $url);
-
-    print "biturl is " . $bitly->{bitlyurl} . "\n";
-
-or
-
-    print "biturl is $shortstuff\n";
-
-=head2 expand
-
-Expands a shorter URL to the original long URL.
-
-=head2 info
-
-Get info about a shorter URL. By default, the method will use the value that's
-stored in C<< $bitly->{bitlyurl} >>. To be sure you're getting info on the correct
-URL, it's a good idea to set this value before getting any info on it.
-
-    $bitly->{bitlyurl} = "http://bitly.com/jmv6";
-    my $info = $bitly->info();
-
-    say "Title of the page is " . $info->{title};
-    say "Created by " . $info->{created_by};
-
-=head2 clicks
-
-Get click-thru information for a shorter URL. By default, the method will use
-the value that's stored in C<< $bitly->{bitlyurl} >>. To be sure you're getting
-info on the correct URL, it's a good idea to set this value before getting
-any info on it.
-
-    $bitly->{bitlyurl} = "http://bitly.com/jmv6";
-    my $clicks = $bitly->clicks();
-
-    say "Total number of clicks received: " . $clicks->{user_clicks};
-    say "Total number of global clicks received are: " . $clicks->{global_clicks};
-
-=head2 errors
-
-=head2 version
-
-Gets the module version number
-
-=head2 referrers
-
-Returns an array of hashes
-
-    my @ref = $bitly->referrers();
-    say "Referrers for " . $bitly->{bitlyurl};
-    foreach my $r (@ref) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' from ' . $f->{referrer};
-        }
-    }
-
-=head2 countries
-
-Returns an array of hashes
-
-    my @countries = $bitly->countries();
-    foreach my $r (@countries) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' from ' . $f->{country};
-        }
-    }
-
-=head2 clicks_by_day
-
-Returns an array of hashes
-
-    my @c = $bitly->clicks_by_day();
-    say "Clicks by Day for " . $bitly->{bitlyurl};
-    foreach my $r (@c) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' on ' . $f->{day_start};
-        }
-    }
-
-C<day_start> is the time code as specified by L<http://bitly.com>. You can use
-the following to turn it into a L<DateTime> object:
-
-    use DateTime;
-    $dt = DateTime->from_epoch( epoch => $epoch );
-
-
-=head2 qr_code
-
-Returns the URL for the QR Code
-
-=head2 validate
-
-For any given a L<http://bitly.com> user login and API key, you can validate that the pair is active.
+Any or all of the attributes can be set in your configuration file. If you have
+a configuration file and you pass parameters to C<new>, the parameters passed
+in will take precedence.
 
 =head2 bitly_pro_domain
 
-Will return true or false whether the URL specified is a L<http://bitly.com> Pro Domain
+    my $bpd = $bitly->bitly_pro_domain(domain => 'http://nyti.ms');
+    say Dumper $bpd;
 
-    my $bpd = $bitly->bitly_pro_domain(url => 'http://nyti.ms');
-    say "This is a Bitly Pro Domain: " . $bpd;
+    my $bpd2 = $bitly->bitly_pro_domain(domain => 'http://example.com');
+    say Dumper $bpd2;
 
-    my $bpd2 = $bitly->bitly_pro_domain(url => 'http://example.com');
-    say "This is a Bitly Pro Domain: " . $bpd2;
+Query whether a given domain is a valid
+L<Bitly pro domain| https://dev.bitly.com/domains.html#v3_bitly_pro_domain>.
+Returns a hash reference with the information or dies on error.
+
+=head2 clicks
+
+    my $clicks = $bitly->clicks(
+        link => "http://bit.ly/1RmnUT",
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $clicks;
+
+Get the number of L<clicks|https://dev.bitly.com/link_metrics.html#v3_link_clicks> on a
+single link. Returns a hash reference of information or dies.
+
+=head2 clicks_by_day
+
+    my $clicks = $bitly->clicks_by_day(
+        link => "http://bit.ly/1RmnUT",
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $clicks;
+
+This call used to exist, but now is merely an alias to the L<WWW::Shorten::Bitly/clicks>
+method that hard-sets the C<unit> to C<'day'> and the C<units> to C<7>.
+Returns a hash reference of information or dies.
+
+=head2 countries
+
+    my $countries = $bitly->countries(
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $countries;
+
+Returns a hash reference of aggregate metrics about the
+L<countries referring click traffic|https://dev.bitly.com/user_metrics.html#v3_user_countries>
+to all of the authenticated user's links. Dies on failure.
+
+=head2 expand
+
+    my $long = $bitly->expand(
+        shortUrl => "http://bit.ly/1RmnUT", # OR
+        hash => '1RmnUT', # or: 'custom-name'
+    );
+    say $long->{long_url};
+
+Expand a URL using L<https://dev.bitly.com/links.html#v3_expand>. Older versions
+of this library required you to pass a C<URL> parameter.  That parameter has
+been aliased for your convenience.  However, we urge you to stick with the
+parameters in the API.  Returns a hash reference or dies.
+
+=head2 info
+
+    my $info = $bitly->info(
+        shortUrl => 'http://bitly.com/jmv6', # OR
+        hash => 'jmv6',
+        expand_user => 'false', # or 'true'
+    );
+    say Dumper $info;
+
+Get info about a shorter URL using the L<info method call|https://dev.bitly.com/links.html#v3_info>.
+This will return a hash reference full of information about the given short URL or
+hash.  It will die on failure.
+
+=head2 login
+
+    use Try::Tiny qw(try catch);
+
+    try {
+        $bitly->login();
+        say "yay, logged in!";
+    }
+    catch {
+        warn "Crap! Our login failed! $_";
+    };
+
+This method will just return your object instance if your C<access_token> is already set.
+Otherwise, it will make use of one of the two login methods depending on how
+much information you've supplied. On success, the C<access_token> attribute will
+be set and your instance will be returned (method-chaining). On failure, an
+exception with relevant information will be thrown.
+
+If you would prefer, you can use one of the other two
+forms of logging in:
+
+=over
+
+=item *
+
+L<Resource Owner Credentials Grants|https://dev.bitly.com/authentication.html#resource_owner_credentials>
+
+=item *
+
+L<HTTP Basic Authentication|https://dev.bitly.com/authentication.html#basicauth>
+
+=back
+
+These two forms require at least the C<username> and C<password> parameters.
 
 =head2 lookup
 
-=head2 clicks_by_minute
+    my $info = $bitly->shorten(url => "http://www.google.com/");
+    say $info;
 
-This part of the L<http://bitly.com> API isn't being implemented because it's
-virtually impossible to know exactly which minute a clicks is attributed to.
-Ya know, network lag, etc. I'll implement this when Bitly puts some sort of a
-time code into the results.
+Use this L<lookup method call|https://dev.bitly.com/links.html#v3_link_lookup> to
+query for a short URL based on a long URL. Returns a hash reference or dies.
 
-=cut
+=head2 referrers
 
-=head1 FILES
+    my $refs = $bitly->referrers(
+        link => "http://bit.ly/1RmnUT",
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $refs;
+
+Use the L<referrers API call|https://dev.bitly.com/link_metrics.html#v3_link_referrers>
+to get metrics about the pages referring click traffic to a single short URL.
+Returns a hash reference or dies.
+
+=head2 shorten
+
+    my $short = $bitly->shorten(
+        longUrl => "http://www.example.com", # required.
+        domain => 'bit.ly', # or: 'j.mp' or 'bitly.com'
+    );
+    say $short->{url};
+
+Shorten a URL using L<https://dev.bitly.com/links.html#v3_shorten>. Older versions
+of this library required you to pass a C<URL> parameter.  That parameter has
+been aliased for your convenience.  However, we urge you to stick with the
+parameters in the API.  Returns a hash reference or dies.
+
+=head1 CONFIG FILES
 
 C<$HOME/.bitly> or C<_bitly> on Windows Systems.
 
-You may omit C<USER> and C<APIKEY> in the constructor if you set them in the
-config file on separate lines using the syntax:
+    username=username
+    password=some_password_here
+    client_id=foobarbaz
+    client_secret=asdlfkjadslkgj34t34talkgjag
 
-    USER=username
-    APIKEY=apikey
+Set any or all L<WWW::Shorten::Bitly/ATTRIBUTES> in your config file in your
+home directory. Each C<key=val> setting should be on its own line. If any
+parameters are then passed to the L<WWW::Shorten::Bitly/new> constructor, those
+parameter values will take precedence over these.
 
 =head1 AUTHOR
 
@@ -688,7 +810,6 @@ Peter Edwards <F<pedwards@cpan.org>>
 Thai Thanh Nguyen <F<thai@thaiandhien.com>>
 
 =back
-
 
 =head1 COPYRIGHT & LICENSE
 

@@ -4,55 +4,75 @@ WWW::Shorten::Bitly - Interface to shortening URLs using [http://bitly.com](http
 
 # SYNOPSIS
 
-[WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) provides an easy interface for shortening URLs using
-[http://bitly.com](http://bitly.com). In addition to shortening URLs, you can pull statistics
-that [http://bitly.com](http://bitly.com) gathers regarding each shortened URL.
+The traditional way, using the [WWW::Shorten](https://metacpan.org/pod/WWW::Shorten) interface:
 
-[WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) provides two interfaces. The first is the common
-`makeashorterlink` and `makealongerlink` that [WWW::Shorten](https://metacpan.org/pod/WWW::Shorten) provides.
-However, due to the way the [http://bitly.com](http://bitly.com) API works, additional arguments
-are required. The second provides a better way of retrieving additional
-information and statistics about a [http://bitly.com](http://bitly.com) URL.
+    use strict;
+    use warnings;
 
     use WWW::Shorten::Bitly;
+    # use WWW::Shorten 'Bitly';  # or, this way
 
-    my $url = "http://www.example.com";
+    # if you have a config file with your credentials:
+    my $short_url = makeashorterlink('http://www.foo.com/some/long/url');
+    my $long_url  = makealongerlink($short_url);
 
-    my $tmp = makeashorterlink($url, 'MY_BITLY_USERNAME', 'MY_BITLY_API_KEY');
-    my $tmp1 = makealongerlink($tmp, 'MY_BITLY_USERNAME', 'MY_BITLY_API_KEY');
+    # otherwise
+    my $short = makeashorterlink('http://www.foo.com/some/long/url', {
+        username => 'username',
+        password => 'password',
+        ...
+    });
 
-or
+Or, the Object-Oriented way:
 
+    use strict;
+    use warnings;
+    use Data::Dumper;
+    use Try::Tiny qw(try catch);
     use WWW::Shorten::Bitly;
 
-    my $url = "http://www.example.com";
     my $bitly = WWW::Shorten::Bitly->new(
-        URL => $url,
-        USER => "my_user_id",
-        APIKEY => "my_api_key"
+        username => 'username',
+        password => 'password',
+        client_id => 'adflkdgalgka',
+        client_secret => 'sldfkjasdflg',
     );
 
-    $bitly->shorten(URL => $url);
-    print "shortened URL is $bitly->{bitlyurl}\n";
+    try {
+        my $res = $bitly->shorten(longUrl => 'http://google.com/');
+        say Dumper $res;
+        # {
+        #   global_hash => "900913",
+        #   hash => "ze6poY",
+        #   long_url => "http://google.com/",
+        #   new_hash => 0,
+        #   url => "http://bit.ly/ze6poY"
+        # }
+    }
+    catch {
+        die("Oh, no! $_");
+    };
 
-    $bitly->expand(URL => $bitly->{bitlyurl});
-    print "expanded/original URL is $bitly->{longurl}\n";
+# DESCRIPTION
 
-    my $info = $bitly->info();
-    say "Title of the page is " . $info->{title};
-    say "Created by " . $info->{created_by};
+A Perl interface to the [Bitly.com API](https://dev.bitly.com/api.html).
 
-    my $clicks = $bitly->clicks();
-    say "Total number of clicks received: " . $clicks->{user_clicks};
-    say "Total number of global clicks received are: " . $clicks->{global_clicks};
-
-Please remember to check out `http://code.google.com/p/bitly-api/wiki/ApiDocumentation#/v3/info` for more details on V3 of the Bitly.com API
+You can either use the traditional (non-OO) interface provided by [WWW::Shorten](https://metacpan.org/pod/WWW::Shorten).
+Or, you can use the OO interface that provides you with more functionality.
 
 # FUNCTIONS
 
 In the non-OO form, [WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly) makes the following functions available.
 
 ## makeashorterlink
+
+    my $short_url = makeashorterlink('https://some_long_link.com');
+    # OR
+    my $short_url = makeashorterlink('https://some_long_link.com', {
+        username => 'foo',
+        password => 'bar',
+        # any other attribute can be set as well.
+    });
 
 The function `makeashorterlink` will call the [http://bitly.com](http://bitly.com) web site,
 passing it your long URL and will return the shorter version.
@@ -61,10 +81,18 @@ passing it your long URL and will return the shorter version.
 
 ## makealongerlink
 
+    my $long_url = makealongerlink('http://bit.ly/ze6poY');
+    # OR
+    my $long_url = makealongerlink('http://bit.ly/ze6poY', {
+        username => 'foo',
+        password => 'bar',
+        # any other attribute can be set as well.
+    });
+
 The function `makealongerlink` does the reverse. `makealongerlink`
 will accept as an argument either the full URL or just the identifier.
 
-If anything goes wrong, either function will return `undef`.
+If anything goes wrong, either function will die.
 
 # ATTRIBUTES
 
@@ -80,15 +108,6 @@ attributes available. Please note that changing any attribute will unset the
 Gets or sets the `access_token`. If the token is set, then we won't try to login.
 You can set this ahead of time if you like, or it will be set on the first method
 call or on ["login" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#login).
-
-## base\_url
-
-    my $url = $bitly->base_url;
-    $bitly = $bitly->base_url(
-        URI->new('https://api.bitly.com')
-    ); # method chaining
-
-Gets or sets the `base_url`. The default is [https://api.bitly.com](https://api.bitly.com).
 
 ## client\_id
 
@@ -136,151 +155,184 @@ In the OO form, [WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bit
 
 ## new
 
-Create a new object instance using your [http://bitly.com](http://bitly.com) user id and API key.
-
     my $bitly = WWW::Shorten::Bitly->new(
-        URL => "http://www.example.com/this_is_one_example.html",
-        USER => "bitly_user_id",
-        APIKEY => "bitly_api_key"
+        access_token => 'sometokenIalreadyreceived24123123512451',
+        client_id => 'some id here',
+        client_secret => 'some super secret thing',
+        password => 'my password',
+        username => 'my_username@foobar.com'
     );
 
-To use [http://bitly.com](http://bitly.com)'s new [http://j.mp](http://j.mp) service, just construct the
-instance like this:
+The constructor can take any of the attributes above as parameters. If you've
+logged in using some other form (OAuth2, etc.) then all you need to do is provide
+the `access_token`.
 
-    my $bitly = WWW::Shorten::Bitly->new(
-        URL => "http://www.example.com/this_is_one_example.html",
-        USER => "bitly_user_id",
-        APIKEY => "bitly_api_key",
-        jmp => 1
-    );
-
-## shorten
-
-Shorten a URL using [http://bitly.com](http://bitly.com). Calling the `shorten` method will
-return the shorter URL, but will also store it in this instance until the next
-call is made.
-
-    my $url = "http://www.example.com";
-    my $shortstuff = $bitly->shorten(URL => $url);
-
-    print "biturl is " . $bitly->{bitlyurl} . "\n";
-
-or
-
-    print "biturl is $shortstuff\n";
-
-## expand
-
-Expands a shorter URL to the original long URL.
-
-## info
-
-Get info about a shorter URL. By default, the method will use the value that's
-stored in `$bitly->{bitlyurl}`. To be sure you're getting info on the correct
-URL, it's a good idea to set this value before getting any info on it.
-
-    $bitly->{bitlyurl} = "http://bitly.com/jmv6";
-    my $info = $bitly->info();
-
-    say "Title of the page is " . $info->{title};
-    say "Created by " . $info->{created_by};
-
-## clicks
-
-Get click-thru information for a shorter URL. By default, the method will use
-the value that's stored in `$bitly->{bitlyurl}`. To be sure you're getting
-info on the correct URL, it's a good idea to set this value before getting
-any info on it.
-
-    $bitly->{bitlyurl} = "http://bitly.com/jmv6";
-    my $clicks = $bitly->clicks();
-
-    say "Total number of clicks received: " . $clicks->{user_clicks};
-    say "Total number of global clicks received are: " . $clicks->{global_clicks};
-
-## errors
-
-## version
-
-Gets the module version number
-
-## referrers
-
-Returns an array of hashes
-
-    my @ref = $bitly->referrers();
-    say "Referrers for " . $bitly->{bitlyurl};
-    foreach my $r (@ref) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' from ' . $f->{referrer};
-        }
-    }
-
-## countries
-
-Returns an array of hashes
-
-    my @countries = $bitly->countries();
-    foreach my $r (@countries) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' from ' . $f->{country};
-        }
-    }
-
-## clicks\_by\_day
-
-Returns an array of hashes
-
-    my @c = $bitly->clicks_by_day();
-    say "Clicks by Day for " . $bitly->{bitlyurl};
-    foreach my $r (@c) {
-        foreach my $f (@{$r}) {
-            say $f->{clicks} . ' on ' . $f->{day_start};
-        }
-    }
-
-`day_start` is the time code as specified by [http://bitly.com](http://bitly.com). You can use
-the following to turn it into a [DateTime](https://metacpan.org/pod/DateTime) object:
-
-    use DateTime;
-    $dt = DateTime->from_epoch( epoch => $epoch );
-
-## qr\_code
-
-Returns the URL for the QR Code
-
-## validate
-
-For any given a [http://bitly.com](http://bitly.com) user login and API key, you can validate that the pair is active.
+Any or all of the attributes can be set in your configuration file. If you have
+a configuration file and you pass parameters to `new`, the parameters passed
+in will take precedence.
 
 ## bitly\_pro\_domain
 
-Will return true or false whether the URL specified is a [http://bitly.com](http://bitly.com) Pro Domain
+    my $bpd = $bitly->bitly_pro_domain(domain => 'http://nyti.ms');
+    say Dumper $bpd;
 
-    my $bpd = $bitly->bitly_pro_domain(url => 'http://nyti.ms');
-    say "This is a Bitly Pro Domain: " . $bpd;
+    my $bpd2 = $bitly->bitly_pro_domain(domain => 'http://example.com');
+    say Dumper $bpd2;
 
-    my $bpd2 = $bitly->bitly_pro_domain(url => 'http://example.com');
-    say "This is a Bitly Pro Domain: " . $bpd2;
+Query whether a given domain is a valid
+[Bitly pro domain](https://metacpan.org/pod/&#x20;https:#dev.bitly.com-domains.html-v3_bitly_pro_domain).
+Returns a hash reference with the information or dies on error.
+
+## clicks
+
+    my $clicks = $bitly->clicks(
+        link => "http://bit.ly/1RmnUT",
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $clicks;
+
+Get the number of [clicks](https://dev.bitly.com/link_metrics.html#v3_link_clicks) on a
+single link. Returns a hash reference of information or dies.
+
+## clicks\_by\_day
+
+    my $clicks = $bitly->clicks_by_day(
+        link => "http://bit.ly/1RmnUT",
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $clicks;
+
+This call used to exist, but now is merely an alias to the ["clicks" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#clicks)
+method that hard-sets the `unit` to `'day'` and the `units` to `7`.
+Returns a hash reference of information or dies.
+
+## countries
+
+    my $countries = $bitly->countries(
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $countries;
+
+Returns a hash reference of aggregate metrics about the
+[countries referring click traffic](https://dev.bitly.com/user_metrics.html#v3_user_countries)
+to all of the authenticated user's links. Dies on failure.
+
+## expand
+
+    my $long = $bitly->expand(
+        shortUrl => "http://bit.ly/1RmnUT", # OR
+        hash => '1RmnUT', # or: 'custom-name'
+    );
+    say $long->{long_url};
+
+Expand a URL using [https://dev.bitly.com/links.html#v3\_expand](https://dev.bitly.com/links.html#v3_expand). Older versions
+of this library required you to pass a `URL` parameter.  That parameter has
+been aliased for your convenience.  However, we urge you to stick with the
+parameters in the API.  Returns a hash reference or dies.
+
+## info
+
+    my $info = $bitly->info(
+        shortUrl => 'http://bitly.com/jmv6', # OR
+        hash => 'jmv6',
+        expand_user => 'false', # or 'true'
+    );
+    say Dumper $info;
+
+Get info about a shorter URL using the [info method call](https://dev.bitly.com/links.html#v3_info).
+This will return a hash reference full of information about the given short URL or
+hash.  It will die on failure.
+
+## login
+
+    use Try::Tiny qw(try catch);
+
+    try {
+        $bitly->login();
+        say "yay, logged in!";
+    }
+    catch {
+        warn "Crap! Our login failed! $_";
+    };
+
+This method will just return your object instance if your `access_token` is already set.
+Otherwise, it will make use of one of the two login methods depending on how
+much information you've supplied. On success, the `access_token` attribute will
+be set and your instance will be returned (method-chaining). On failure, an
+exception with relevant information will be thrown.
+
+If you would prefer, you can use one of the other two
+forms of logging in:
+
+- [Resource Owner Credentials Grants](https://dev.bitly.com/authentication.html#resource_owner_credentials)
+- [HTTP Basic Authentication](https://dev.bitly.com/authentication.html#basicauth)
+
+These two forms require at least the `username` and `password` parameters.
 
 ## lookup
 
-## clicks\_by\_minute
+    my $info = $bitly->shorten(url => "http://www.google.com/");
+    say $info;
 
-This part of the [http://bitly.com](http://bitly.com) API isn't being implemented because it's
-virtually impossible to know exactly which minute a clicks is attributed to.
-Ya know, network lag, etc. I'll implement this when Bitly puts some sort of a
-time code into the results.
+Use this [lookup method call](https://dev.bitly.com/links.html#v3_link_lookup) to
+query for a short URL based on a long URL. Returns a hash reference or dies.
 
-# FILES
+## referrers
+
+    my $refs = $bitly->referrers(
+        link => "http://bit.ly/1RmnUT",
+        unit => 'day',
+        units => -1,
+        timezone => 'America/New_York',
+        rollup => 'false', # or 'true'
+        limit => 100, # from 1 to 1000
+        unit_reference_ts => 'now', # epoch timestamp
+    );
+    say Dumper $refs;
+
+Use the [referrers API call](https://dev.bitly.com/link_metrics.html#v3_link_referrers)
+to get metrics about the pages referring click traffic to a single short URL.
+Returns a hash reference or dies.
+
+## shorten
+
+    my $short = $bitly->shorten(
+        longUrl => "http://www.example.com", # required.
+        domain => 'bit.ly', # or: 'j.mp' or 'bitly.com'
+    );
+    say $short->{url};
+
+Shorten a URL using [https://dev.bitly.com/links.html#v3\_shorten](https://dev.bitly.com/links.html#v3_shorten). Older versions
+of this library required you to pass a `URL` parameter.  That parameter has
+been aliased for your convenience.  However, we urge you to stick with the
+parameters in the API.  Returns a hash reference or dies.
+
+# CONFIG FILES
 
 `$HOME/.bitly` or `_bitly` on Windows Systems.
 
-You may omit `USER` and `APIKEY` in the constructor if you set them in the
-config file on separate lines using the syntax:
+    username=username
+    password=some_password_here
+    client_id=foobarbaz
+    client_secret=asdlfkjadslkgj34t34talkgjag
 
-    USER=username
-    APIKEY=apikey
+Set any or all ["ATTRIBUTES" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#ATTRIBUTES) in your config file in your
+home directory. Each `key=val` setting should be on its own line. If any
+parameters are then passed to the ["new" in WWW::Shorten::Bitly](https://metacpan.org/pod/WWW::Shorten::Bitly#new) constructor, those
+parameter values will take precedence over these.
 
 # AUTHOR
 

@@ -23,17 +23,23 @@ my %WriteMakefileArgs = (
     "Carp" => 0,
     "Exporter" => 0,
     "File::HomeDir" => "1.00",
+    "File::Spec" => 0,
     "JSON::MaybeXS" => 0,
     "LWP::Protocol::https" => 0,
+    "Path::Tiny" => 0,
+    "Scalar::Util" => 0,
     "URI" => "1.58",
     "WWW::Shorten" => "3.09",
     "base" => 0,
+    "constant" => 0,
     "strict" => 0,
     "warnings" => 0
   },
   "TEST_REQUIRES" => {
     "ExtUtils::MakeMaker" => 0,
+    "File::HomeDir" => "1.00",
     "File::Spec" => 0,
+    "Path::Tiny" => 0,
     "Test::More" => "0.88"
   },
   "VERSION" => "1.200",
@@ -51,10 +57,13 @@ my %FallbackPrereqs = (
   "File::Spec" => 0,
   "JSON::MaybeXS" => 0,
   "LWP::Protocol::https" => 0,
+  "Path::Tiny" => 0,
+  "Scalar::Util" => 0,
   "Test::More" => "0.88",
   "URI" => "1.58",
   "WWW::Shorten" => "3.09",
   "base" => 0,
+  "constant" => 0,
   "strict" => 0,
   "warnings" => 0
 );

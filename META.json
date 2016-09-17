@@ -52,11 +52,15 @@
             "Carp" : "0",
             "Exporter" : "0",
             "File::HomeDir" : "1.00",
+            "File::Spec" : "0",
             "JSON::MaybeXS" : "0",
             "LWP::Protocol::https" : "0",
+            "Path::Tiny" : "0",
+            "Scalar::Util" : "0",
             "URI" : "1.58",
             "WWW::Shorten" : "3.09",
             "base" : "0",
+            "constant" : "0",
             "perl" : "5.008001",
             "strict" : "0",
             "warnings" : "0"
@@ -68,7 +72,9 @@
          },
          "requires" : {
             "ExtUtils::MakeMaker" : "0",
+            "File::HomeDir" : "1.00",
             "File::Spec" : "0",
+            "Path::Tiny" : "0",
             "Test::More" : "0.88"
          }
       }
@@ -330,7 +336,7 @@
             "class" : "Dist::Zilla::Plugin::Git::Contributors",
             "config" : {
                "Dist::Zilla::Plugin::Git::Contributors" : {
-                  "git --version" : "2.7.4 (Apple Git-66)",
+                  "git --version" : "2.8.4 (Apple Git-73)",
                   "include_authors" : 0,
                   "include_releaser" : 1,
                   "order_by" : "name",
@@ -470,13 +476,17 @@
             "class" : "Dist::Zilla::Plugin::Test::PodSpelling",
             "config" : {
                "Dist::Zilla::Plugin::Test::PodSpelling" : {
-                  "directories" : [],
+                  "directories" : [
+                     "bin",
+                     "lib"
+                  ],
                   "spell_cmd" : "aspell list",
                   "stopwords" : [
                      "CPAN",
                      "Joerg",
                      "LLC",
                      "Meltzer",
+                     "OAuth",
                      "Teknatus",
                      "github",
                      "makealongerlink",
@@ -489,7 +499,7 @@
                }
             },
             "name" : "Test::PodSpelling",
-            "version" : "2.007002"
+            "version" : "2.007003"
          },
          {
             "class" : "Dist::Zilla::Plugin::CopyFilesFromBuild",

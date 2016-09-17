@@ -3,16 +3,23 @@ on 'runtime' => sub {
     requires 'strict';
     requires 'warnings';
     requires 'base';
+    requires 'constant';
     requires 'Carp';
     requires 'Exporter';
     requires 'File::HomeDir' => '1.00';
+    requires 'File::Spec';
     requires 'JSON::MaybeXS';
     requires 'LWP::Protocol::https';
+    requires 'Path::Tiny';
+    requires 'Scalar::Util';
     requires 'WWW::Shorten' => '3.09';
     requires 'URI' => '1.58';
 };
 
 on 'test' => sub {
+    requires 'File::HomeDir' => '1.00';
+    requires 'File::Spec';
+    requires 'Path::Tiny';
     requires 'Test::More' => '0.88';
 };
 
