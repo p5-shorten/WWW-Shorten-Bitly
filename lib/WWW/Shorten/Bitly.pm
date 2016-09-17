@@ -169,7 +169,7 @@ sub bitly_pro_domain {
     $self->login() unless ($self->access_token);
 
     my $args = _parse_args(@_);
-    my $link = $args->{domain} || $args->{single_arg} || '';
+    my $link = $args->{domain} || $args->{url} || $args->{single_arg} || '';
     unless ($link) {
         Carp::croak("A domain parameter is required.\n");
     }
