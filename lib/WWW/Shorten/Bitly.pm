@@ -731,7 +731,7 @@ These two forms require at least the C<username> and C<password> parameters.
 
 =head2 lookup
 
-    my $info = $bitly->shorten(url => "http://www.google.com/");
+    my $info = $bitly->lookup(url => "http://www.google.com/");
     say $info;
 
 Use this L<lookup method call|https://dev.bitly.com/links.html#v3_link_lookup> to

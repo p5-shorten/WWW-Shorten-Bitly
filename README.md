@@ -284,7 +284,7 @@ These two forms require at least the `username` and `password` parameters.
 
 ## lookup
 
-    my $info = $bitly->shorten(url => "http://www.google.com/");
+    my $info = $bitly->lookup(url => "http://www.google.com/");
     say $info;
 
 Use this [lookup method call](https://dev.bitly.com/links.html#v3_link_lookup) to
