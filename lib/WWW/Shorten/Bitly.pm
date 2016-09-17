@@ -13,7 +13,7 @@ use URI ();
 use base qw( WWW::Shorten::generic Exporter );
 our @EXPORT = qw(new version);
 
-our $VERSION = '1.200';
+our $VERSION = '2.000';
 $VERSION = eval $VERSION;
 
 use constant BASE_BLY => $ENV{BITLY_API_URL} || 'https://api-ssl.bitly.com';
