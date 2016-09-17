@@ -1,6 +1,9 @@
 Revision history for Revision history for perl module {{$dist->name}}
 
 {{$NEXT}}
+    - 
+
+2.000     2016-09-16
     - MAJOR CHANGES!!!!!
     - Cleaned up the object-oriented interface.
     - Removed errors function
