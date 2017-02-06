@@ -153,7 +153,7 @@ sub new {
     # start with what's in our config file (if anything)
     my $href = _parse_config();
     # override with anything passed in
-    for my $key (%{$args}) {
+    for my $key (keys %{$args}) {
         my $lc_key = lc($key);
         $lc_key = 'username' if $lc_key eq 'user';
         next unless grep {$lc_key eq $_} @{$attrs};
@@ -267,8 +267,11 @@ sub expand {
         shortUrl => $short_url,
         hash => $args->{hash},
         format => 'json',
-    );
-    return _json_request($url);
+	);
+    
+    my $res = _json_request($url);
+    Carp::croak("Invalid response") unless $res && ref($res->{expand}) eq 'ARRAY';
+    return $res->{expand}[0];
 }
 
 sub info {
@@ -375,12 +378,9 @@ sub makealongerlink {
     }
     my $url = shift or Carp::croak('No URL passed to makealongerlink');
     $self ||= __PACKAGE__->new(@_);
-    my $res = $self->expand(shortUrl=>$url, @_);
-    return '' unless ref($res->{expand}) eq 'ARRAY';
-    for my $row (@{$res->{expand}}) {
-        return $row->{long_url};
-    }
-    return '';
+    my $res = $self->expand(shortUrl=>$url);
+    return '' unless ref($res) eq 'HASH' and $res->{long_url};
+    return $res->{long_url};
 }
 
 sub password { return shift->_attr('password', @_); }
