@@ -1,7 +1,8 @@
 Revision history for Revision history for perl module {{$dist->name}}
 
 {{$NEXT}}
-    - 
+    - Added LICENSE to the repository
+    - Added CONTRIBUTING.md to the repository
 
 2.001     2017-02-06
     - Fix an error in the constructor (GH#1)

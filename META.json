@@ -108,6 +108,7 @@
             "config" : {
                "Dist::Zilla::Plugin::GatherDir" : {
                   "exclude_filename" : [
+                     "LICENSE",
                      "META.json",
                      "Makefile.PL",
                      "README.md"
