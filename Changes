@@ -1,7 +1,8 @@
 Revision history for Revision history for perl module {{$dist->name}}
 
 {{$NEXT}}
-    - 
+    - Fix an error in the constructor (GH#1)
+    - Fix a change in ReadmeAnyFromPod
 
 2.000     2016-09-16
     - MAJOR CHANGES!!!!!
@@ -23,11 +24,11 @@ Revision history for Revision history for perl module {{$dist->name}}
     - Added quite a bit more tests
 
 1.11    2009-08-12/15:45IST
-        Implemented a few patches provided by other PAUSE
-        contributors to fail gracefully, use post instead of get on bit.ly.
+    - Implemented a few patches provided by other PAUSE
+    - contributors to fail gracefully, use post instead of get on bit.ly.
 
 0.78    2009-01-25/21:12IST
-        Working version, fixed some documentation issues.
+    - Working version, fixed some documentation issues.
 
 0.01    2009-01-01/00:00
-        First version, released on an unsuspecting world.
+    - First version, released on an unsuspecting world.
