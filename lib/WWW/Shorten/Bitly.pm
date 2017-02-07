@@ -13,7 +13,7 @@ use URI ();
 use base qw( WWW::Shorten::generic Exporter );
 our @EXPORT = qw(new version);
 
-our $VERSION = '2.001';
+our $VERSION = '2.002';
 $VERSION = eval $VERSION;
 
 use constant BASE_BLY => $ENV{BITLY_API_URL} || 'https://api-ssl.bitly.com';
@@ -268,7 +268,7 @@ sub expand {
         hash => $args->{hash},
         format => 'json',
 	);
-    
+
     my $res = _json_request($url);
     Carp::croak("Invalid response") unless $res && ref($res->{expand}) eq 'ARRAY';
     return $res->{expand}[0];
